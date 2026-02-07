@@ -57,6 +57,8 @@ dependencies {
 
     // Health Services for sensors
     implementation("androidx.health:health-services-client:1.1.0-alpha03")
+    implementation("com.google.guava:guava:31.1-android")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.7.3")
 
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.ui.test.junit4)
