@@ -73,9 +73,20 @@ fun WearApp() {
         var sensorData by remember { mutableStateOf(SensorData()) }
         var isReadingHR by remember { mutableStateOf(false) }
         var isReadingSteps by remember { mutableStateOf(false) }
+        var isReadingCalories by remember { mutableStateOf(false) }
+        var isReadingDistance by remember { mutableStateOf(false) }
         var showHome by remember { mutableStateOf(true) }
         val context = LocalContext.current
         val scope = rememberCoroutineScope()
+        val healthManager = remember {
+            HealthSensorManager(context).also {
+                // Explore all capabilities on first launch
+                it.exploreAllCapabilities()
+                scope.launch {
+                    it.checkCaloriesDistanceCapabilities()
+                }
+            }
+        }
 
         val readSensors = {
             showHome = false
@@ -84,8 +95,7 @@ fun WearApp() {
                 isReadingSteps = true
                 scope.launch {
                     try {
-                        val manager = HealthSensorManager(context)
-                        val data = manager.readSensors()
+                        val data = healthManager.readSensors()
                         sensorData = data
                     } catch (e: Exception) {
                         android.util.Log.e("WearApp", "Error reading sensors", e)
@@ -102,8 +112,7 @@ fun WearApp() {
                 isReadingHR = true
                 scope.launch {
                     try {
-                        val manager = HealthSensorManager(context)
-                        val hr = manager.readHeartRateOnly()
+                        val hr = healthManager.readHeartRateOnly()
                         sensorData = sensorData.copy(heartRate = hr)
                     } catch (e: Exception) {
                         android.util.Log.e("WearApp", "Error reading HR", e)
@@ -119,13 +128,30 @@ fun WearApp() {
                 isReadingSteps = true
                 scope.launch {
                     try {
-                        val manager = HealthSensorManager(context)
-                        val steps = manager.readStepsOnly()
+                        val steps = healthManager.readStepsOnly()
                         sensorData = sensorData.copy(steps = steps)
                     } catch (e: Exception) {
                         android.util.Log.e("WearApp", "Error reading steps", e)
                     } finally {
                         isReadingSteps = false
+                    }
+                }
+            }
+        }
+
+        val readCaloriesAndDistance = {
+            if (!isReadingCalories && !isReadingDistance) {
+                isReadingCalories = true
+                isReadingDistance = true
+                scope.launch {
+                    try {
+                        val (calories, distance) = healthManager.refreshCaloriesAndDistance()
+                        sensorData = sensorData.copy(calories = calories, distance = distance)
+                    } catch (e: Exception) {
+                        android.util.Log.e("WearApp", "Error reading calories/distance", e)
+                    } finally {
+                        isReadingCalories = false
+                        isReadingDistance = false
                     }
                 }
             }
@@ -144,8 +170,11 @@ fun WearApp() {
                     data = sensorData,
                     onReadHeartRate = readHeartRateOnly,
                     onReadSteps = readStepsOnly,
+                    onReadCaloriesAndDistance = readCaloriesAndDistance,
                     isReadingHR = isReadingHR,
-                    isReadingSteps = isReadingSteps
+                    isReadingSteps = isReadingSteps,
+                    isReadingCalories = isReadingCalories,
+                    isReadingDistance = isReadingDistance
                 )
             }
         }
@@ -225,8 +254,11 @@ fun SensorResultsScreen(
     data: SensorData,
     onReadHeartRate: () -> Unit,
     onReadSteps: () -> Unit,
+    onReadCaloriesAndDistance: () -> Unit,
     isReadingHR: Boolean,
-    isReadingSteps: Boolean
+    isReadingSteps: Boolean,
+    isReadingCalories: Boolean,
+    isReadingDistance: Boolean
 ) {
     Column(
         modifier = Modifier
@@ -240,48 +272,90 @@ fun SensorResultsScreen(
             color = Color.White,
             fontSize = 14.sp,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 6.dp)
+            modifier = Modifier.padding(bottom = 8.dp)
         )
 
-        SensorRowWithLoading("❤️ Пульс", data.heartRate?.toInt()?.toString() ?: "N/A", "bpm", isReadingHR)
-        SensorRowWithLoading("👣 Шаги", data.steps?.toString() ?: "N/A", "", isReadingSteps)
-        SensorRow("🔥 Калории", data.calories?.toInt()?.toString() ?: "N/A", "kcal")
-        SensorRow("📏 Дистанция", data.distance?.toInt()?.toString() ?: "N/A", "m")
+        SensorRowWithButton(
+            "❤️ Пульс",
+            data.heartRate?.toInt()?.toString() ?: "N/A",
+            "bpm",
+            isReadingHR,
+            onReadHeartRate
+        )
 
-        Spacer(modifier = Modifier.height(10.dp))
+        SensorRowWithButton(
+            "👣 Шаги",
+            data.steps?.toString() ?: "N/A",
+            "",
+            isReadingSteps,
+            onReadSteps
+        )
 
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+        SensorRowWithButton(
+            "🔥 Калории",
+            data.calories?.toInt()?.toString() ?: "N/A",
+            "kcal",
+            isReadingCalories,
+            onReadCaloriesAndDistance
+        )
+
+        SensorRowWithButton(
+            "📏 Дистанция",
+            data.distance?.toInt()?.toString() ?: "N/A",
+            "m",
+            isReadingDistance,
+            onReadCaloriesAndDistance
+        )
+    }
+}
+
+@Composable
+fun SensorRowWithButton(
+    label: String,
+    value: String,
+    unit: String,
+    isLoading: Boolean,
+    onRefresh: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = 11.sp,
+            modifier = Modifier.weight(0.35f)
+        )
+
+        if (isLoading) {
+            androidx.wear.compose.material.CircularProgressIndicator(
+                modifier = Modifier.size(14.dp),
+                indicatorColor = MaterialTheme.colors.primary,
+                strokeWidth = 2.dp
+            )
+        } else {
+            Text(
+                text = "$value $unit",
+                color = MaterialTheme.colors.primary,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(0.4f)
+            )
+        }
+
+        androidx.wear.compose.material.CompactButton(
+            onClick = onRefresh,
+            enabled = !isLoading,
+            modifier = Modifier.size(28.dp)
         ) {
-            Button(
-                onClick = onReadHeartRate,
-                enabled = !isReadingHR,
-                modifier = Modifier
-                    .weight(1f)
-                    .height(32.dp)
-            ) {
-                Text(
-                    text = "❤️ ПУЛЬС",
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            Button(
-                onClick = onReadSteps,
-                enabled = !isReadingSteps,
-                modifier = Modifier
-                    .weight(1f)
-                    .height(32.dp)
-            ) {
-                Text(
-                    text = "👣 ШАГИ",
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
+            Text(
+                text = "🔄",
+                fontSize = 10.sp
+            )
         }
     }
 }

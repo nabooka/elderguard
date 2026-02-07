@@ -60,6 +60,9 @@ dependencies {
     implementation("com.google.guava:guava:31.1-android")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.7.3")
 
+    // Health Connect for reading calories and distance
+    implementation("androidx.health.connect:connect-client:1.1.0-alpha07")
+
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.ui.test.junit4)
     debugImplementation(libs.ui.tooling)
